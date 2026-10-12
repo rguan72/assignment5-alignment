@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from typing import Any
 
 import modal
-from transformers import AutoModelForCausalLM
 
 from cs336_alignment.drgrpo_grader import question_only_reward_fn, r1_zero_reward_fn
 from cs336_alignment.vllm_utils import VLLMServer
@@ -11,7 +10,7 @@ from cs336_alignment.vllm_utils import VLLMServer
 
 @dataclass
 class EvalRow:
-    prompt: str
+    question: str
     ground_truth: str
 
 app = modal.App("prompting-baselines")
@@ -43,19 +42,12 @@ def main() -> dict[str, dict[str, Any]]:
             if line:
                 data = json.loads(line)
                 ground_truth = data["answer"].split("####")[1].strip()
-                question = data["question"]
-                prompt = prompt_templates["r1_zero_three_shot"].format(question=question)
-                eval_row = EvalRow(prompt=prompt, ground_truth=ground_truth)
+                eval_row = EvalRow(question=data["question"], ground_truth=ground_truth)
                 eval_rows.append(eval_row)
 
     server = VLLMServer(model_id="allenai/OLMo-2-0425-1B", gpu=0)
     server.start()
 
-    sampling_params = {
-        "top_p": 1.0,
-        "temperature": 1.0,
-        "max_generation_length": 512,
-    }
     results: dict[str, dict[str, Any]] = {
         "r1_zero": {
             "full_reward": 0,
@@ -81,13 +73,20 @@ def main() -> dict[str, dict[str, Any]]:
     }
 
     for prompt_name in prompt_names:
+        sampling_params = {
+            "top_p": 1.0,
+            "temperature": 1.0,
+            "max_tokens": 512,
+            "seed": 42,
+            "n": 1,
+        }
         if prompt_name in ["r1_zero", "r1_zero_three_shot"]:
             sampling_params['stop'] = ["</answer>"]
             sampling_params['include_stop_str_in_output'] = True
             reward_fn = r1_zero_reward_fn
         else:
             reward_fn = question_only_reward_fn
-        prompts = [eval_row.prompt for eval_row in eval_rows]
+        prompts = [prompt_templates[prompt_name].format(question=eval_row.question) for eval_row in eval_rows]
         vllm_completions = server.generate_completions(prompts, sampling_params)
         for eval_row, vllm_completion in zip(eval_rows, vllm_completions):
             ground_truth = eval_row.ground_truth
