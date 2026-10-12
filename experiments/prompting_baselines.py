@@ -95,7 +95,7 @@ def main() -> dict[str, dict[str, Any]]:
         for eval_row, vllm_completion in zip(eval_rows, vllm_completions):
             ground_truth = eval_row.ground_truth
             completion = vllm_completion.text
-            reward = reward_fn(ground_truth, completion)
+            reward = reward_fn(completion, ground_truth)
             if reward["format_reward"] == 1.0 and reward["answer_reward"] == 1.0:
                 results[prompt_name]["full_reward"] += 1
             elif reward["format_reward"] == 0.0 and reward["answer_reward"] == 1.0:
