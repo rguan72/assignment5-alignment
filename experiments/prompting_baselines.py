@@ -22,7 +22,11 @@ image = (
     .add_local_dir("data", "/root/data")
 )
 
-@app.function(image=image, gpu="B200", timeout=60 * 60)
+RESULTS_DIR = "/results"
+RESULTS_FNAME = "prompting_baselines_results.json"
+results_volume = modal.Volume.from_name("cs336-assignment5", create_if_missing=True)
+
+@app.function(image=image, gpu="B200", timeout=60 * 60, volumes={RESULTS_DIR: results_volume})
 def main() -> dict[str, dict[str, Any]]:
     validation_data_fname = "data/gsm8k/test.jsonl"
     r1_zero_three_shot_fname = "cs336_alignment/prompts/r1_zero_three_shot_gsm8k.prompt"
@@ -101,10 +105,15 @@ def main() -> dict[str, dict[str, Any]]:
             else:
                 results[prompt_name]["no_reward"] += 1
             results[prompt_name]["text_completions"].append(completion)
+
+    with open(f"{RESULTS_DIR}/{RESULTS_FNAME}", "w") as f:
+        json.dump(results, f, indent=2)
+    results_volume.commit()
     return results
 
 @app.local_entrypoint()
 def save_results() -> None:
-    # save results to a file
-    with open("prompting_baselines_results.json", "w") as f:
+    # results are also persisted to the volume; download with:
+    # modal volume get cs336-assignment5 prompting_baselines_results.json
+    with open(RESULTS_FNAME, "w") as f:
         json.dump(main.remote(), f, indent=2)
