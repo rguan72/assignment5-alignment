@@ -48,7 +48,6 @@ def main() -> dict[str, dict[str, Any]]:
                 eval_row = EvalRow(prompt=prompt, ground_truth=ground_truth)
                 eval_rows.append(eval_row)
 
-    policy = AutoModelForCausalLM.from_pretrained("allenai/OLMo-2-0425-1B")
     server = VLLMServer(model_id="allenai/OLMo-2-0425-1B", gpu=0)
     server.start()
 
