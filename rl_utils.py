@@ -162,11 +162,13 @@ def grpo_train_step(
         # normalize reward
         # compute policy gradient
     tokenized = tokenize_prompt_and_output(repeated_prompts, rollout_responses, tokenizer)
-    input_ids = tokenized["input_ids"]
-    labels = tokenized["labels"]
-    response_mask = tokenized["response_mask"]
+    device = next(model.parameters()).device
+    input_ids = tokenized["input_ids"].to(device)
+    labels = tokenized["labels"].to(device)
+    response_mask = tokenized["response_mask"].to(device)
     raw_rewards, rollout_metadata = compute_rollout_rewards(reward_fn, rollout_responses, repeated_ground_truths)
     normalized_rewards, normalized_metadata = compute_group_normalized_rewards_grpo(raw_rewards, group_size, baseline, advantage_eps, advantage_normalizer)
+    normalized_rewards = normalized_rewards.to(device)
     batch_size = len(repeated_prompts)
     mini_batch_size = batch_size // gradient_accumulation_steps
     aggregate_pg_loss = 0.0
