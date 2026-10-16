@@ -101,18 +101,24 @@ def compute_policy_gradient_loss(
     cliprange: float | None = None,
     response_mask: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-    if (importance_reweighting_method == "gspo") or (response_mask is not None):
+    if (response_mask is not None):
         raise NotImplementedError
     raw_rewards_or_advantages = raw_rewards_or_advantages.reshape(raw_rewards_or_advantages.shape[0], 1) # b x 1
     if importance_reweighting_method in ("grpo", "noclip"):
         assert old_log_probs is not None, "need to pass old_log_probs for importance reweighting"
         importance_weights = torch.exp(policy_log_probs) / torch.exp(old_log_probs) # b x t
+    elif importance_reweighting_method == "gspo":
+        assert old_log_probs is not None, "need to pass old_log_probs for importance reweighting"
+        per_token_importance_ratios = torch.exp(policy_log_probs) / torch.exp(old_log_probs) # b x t
+        sequence_length = policy_log_probs.shape[-1]
+        importance_weights = torch.prod(per_token_importance_ratios, dim=-1, keepdim=True)**(1/sequence_length) # b x 1
+    if importance_reweighting_method != "none":
         if importance_reweighting_method == "noclip":
             per_token_policy_gradient_loss = raw_rewards_or_advantages * importance_weights
         else:
             assert cliprange is not None, "need to pass cliprange for grpo importance reweighting"
             per_token_policy_gradient_loss = torch.min(raw_rewards_or_advantages * importance_weights, raw_rewards_or_advantages * torch.clip(importance_weights, min=1-cliprange, max=1+cliprange))
-    elif importance_reweighting_method == "none":
+    else:
         per_token_policy_gradient_loss = raw_rewards_or_advantages * policy_log_probs # b x t
     return (-per_token_policy_gradient_loss, {}) #  negative for gradient ascent,
 
@@ -172,23 +178,31 @@ def grpo_train_step(
     batch_size = len(repeated_prompts)
     mini_batch_size = batch_size // gradient_accumulation_steps
     aggregate_pg_loss = 0.0
+    entropy_sum = 0.0
+    response_token_count = 0
     for i in range(0, batch_size, mini_batch_size):
         true_mini_batch_size = min(mini_batch_size, batch_size - i)
         mini_batch_input_ids = input_ids[i:i+true_mini_batch_size]
         mini_batch_labels = labels[i:i+true_mini_batch_size]
         mini_batch_response_mask = response_mask[i:i+true_mini_batch_size]
-        policy_logprobs = get_response_log_probs(model, mini_batch_input_ids, mini_batch_labels)["log_probs"]
+        policy_outputs = get_response_log_probs(model, mini_batch_input_ids, mini_batch_labels, return_token_entropy=True)
+        policy_logprobs = policy_outputs["log_probs"]
+        with torch.no_grad():
+            entropy_sum += (policy_outputs["token_entropy"] * mini_batch_response_mask).float().sum().item()
+            response_token_count += mini_batch_response_mask.sum().item()
+        del policy_outputs
         per_token_policy_gradient_loss, pg_metadata = compute_policy_gradient_loss(normalized_rewards[i:i+true_mini_batch_size], policy_logprobs, importance_reweighting_method, old_log_probs, cliprange, response_mask=None)
         per_token_policy_gradient_loss_scaled = per_token_policy_gradient_loss * true_mini_batch_size / batch_size
         aggregate_microbatch_pg_loss = aggregate_loss_across_microbatch(per_token_policy_gradient_loss_scaled, mini_batch_response_mask, loss_normalization, normalization_constant)
-        aggregate_pg_loss += aggregate_microbatch_pg_loss
+        aggregate_pg_loss += aggregate_microbatch_pg_loss.detach()
         aggregate_microbatch_pg_loss.backward()
     # do we accumulate aggregate_pg_loss over batch? instead of setting it
-    if max_grad_norm is not None:
-        clip_grad_norm_(model.parameters(), max_grad_norm)
+    grad_norm = clip_grad_norm_(model.parameters(), max_grad_norm if max_grad_norm is not None else float("inf"))
     optimizer.step()
     optimizer.zero_grad()
-    return (torch.tensor(aggregate_pg_loss), {})
-    
-        
-    
+    return (aggregate_pg_loss.detach(), {
+        **rollout_metadata,
+        **normalized_metadata,
+        "grad_norm": grad_norm.item(),
+        "token_entropy": entropy_sum / max(response_token_count, 1),
+    })
