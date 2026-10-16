@@ -101,17 +101,21 @@ def compute_policy_gradient_loss(
     cliprange: float | None = None,
     response_mask: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-    if (response_mask is not None):
-        raise NotImplementedError
     raw_rewards_or_advantages = raw_rewards_or_advantages.reshape(raw_rewards_or_advantages.shape[0], 1) # b x 1
     if importance_reweighting_method in ("grpo", "noclip"):
         assert old_log_probs is not None, "need to pass old_log_probs for importance reweighting"
         importance_weights = torch.exp(policy_log_probs) / torch.exp(old_log_probs) # b x t
     elif importance_reweighting_method == "gspo":
+        assert response_mask is not None, "need to pass response mask for gspo"
         assert old_log_probs is not None, "need to pass old_log_probs for importance reweighting"
-        per_token_importance_ratios = torch.exp(policy_log_probs) / torch.exp(old_log_probs) # b x t
-        sequence_length = policy_log_probs.shape[-1]
-        importance_weights = torch.prod(per_token_importance_ratios, dim=-1, keepdim=True)**(1/sequence_length) # b x 1
+        t = policy_log_probs.shape[-1]
+        masked_policy_log_probs = policy_log_probs
+        masked_policy_log_probs[~response_mask] = 0.0
+        masked_old_log_probs = old_log_probs
+        masked_old_log_probs[~response_mask] = 0.0
+        sequence_lengths = torch.sum(response_mask, dim=-1, keepdim=True) # b x 1
+        log_importance_weights = (1 / sequence_lengths) * (torch.sum(masked_policy_log_probs, dim=-1, keepdim=True) - torch.sum(masked_old_log_probs, dim=-1, keepdim=True))
+        importance_weights = torch.exp(log_importance_weights).repeat(1, t)
     if importance_reweighting_method != "none":
         if importance_reweighting_method == "noclip":
             per_token_policy_gradient_loss = raw_rewards_or_advantages * importance_weights
@@ -159,8 +163,6 @@ def grpo_train_step(
     loss_normalization: Literal["sequence", "constant"] = "sequence",
     normalization_constant: int | None = None,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor | float]]:
-    if (baseline != "mean") or (advantage_normalizer != "std") or (importance_reweighting_method != "none") or (old_log_probs is not None) or (cliprange is not None) or (loss_normalization != "sequence") or (normalization_constant is not None):
-        raise NotImplementedError
     # tokenize
     # optimize over mini batch
         # sample
@@ -191,7 +193,7 @@ def grpo_train_step(
             entropy_sum += (policy_outputs["token_entropy"] * mini_batch_response_mask).float().sum().item()
             response_token_count += mini_batch_response_mask.sum().item()
         del policy_outputs
-        per_token_policy_gradient_loss, pg_metadata = compute_policy_gradient_loss(normalized_rewards[i:i+true_mini_batch_size], policy_logprobs, importance_reweighting_method, old_log_probs, cliprange, response_mask=None)
+        per_token_policy_gradient_loss, pg_metadata = compute_policy_gradient_loss(normalized_rewards[i:i+true_mini_batch_size], policy_logprobs, importance_reweighting_method, old_log_probs, cliprange, response_mask=mini_batch_response_mask)
         per_token_policy_gradient_loss_scaled = per_token_policy_gradient_loss * true_mini_batch_size / batch_size
         aggregate_microbatch_pg_loss = aggregate_loss_across_microbatch(per_token_policy_gradient_loss_scaled, mini_batch_response_mask, loss_normalization, normalization_constant)
         aggregate_pg_loss += aggregate_microbatch_pg_loss.detach()
