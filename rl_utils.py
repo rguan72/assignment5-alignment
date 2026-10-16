@@ -68,8 +68,6 @@ def compute_group_normalized_rewards_grpo(
     advantage_eps: float = 1e-6,
     advantage_normalizer: Literal["std", "none", "mean"] = "std",
 ) -> tuple[torch.Tensor, dict[str, float]]:
-    if (advantage_normalizer in ("mean")):
-        raise NotImplementedError
     # rightmost varies fastest, so layout a_1 a_2 ... a_g b_1 b_2 ... b_g c_1 c_2 ... c_g
     raw_rewards_grouped = raw_rewards.reshape(-1, group_size) # b x g
     if baseline == "mean":
@@ -78,6 +76,8 @@ def compute_group_normalized_rewards_grpo(
         reward_baselines = 0
     if advantage_normalizer == "std":
         reward_normalizers = torch.std(raw_rewards_grouped, dim=-1, keepdim=True) + advantage_eps # b x 1
+    elif advantage_normalizer == "mean":
+        reward_normalizers = torch.mean(raw_rewards_grouped, dim=-1, keepdim=True) + advantage_eps
     elif advantage_normalizer == "none":
         reward_normalizers = 1
     rewards_grouped = (raw_rewards_grouped - reward_baselines) / reward_normalizers # b x g
