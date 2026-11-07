@@ -46,7 +46,7 @@ class Config:
     seed: int = 0
     n_train_examples: int = 6400
     n_val_examples: int = 1024
-    num_rollout_steps: int = 200
+    num_rollout_steps: int = 50
     learning_rate: float = 1e-5
     rollout_batch_size: int = 256
     group_size: int = 8
@@ -114,7 +114,7 @@ def train(config: Config, wandb_project: str, wandb_entity: str | None = None,
 
     import rl_utils
     from cs336_alignment.checkpoint import get_model_and_tokenizer
-    from cs336_alignment.drgrpo_grader import r1_zero_reward_fn
+    from cs336_alignment.drgrpo_grader import question_only_reward_fn, r1_zero_reward_fn
     from cs336_alignment.vllm_utils import VLLMServer
 
     config.validate()
@@ -127,6 +127,8 @@ def train(config: Config, wandb_project: str, wandb_entity: str | None = None,
     val_rows = load_rows(config.validation_data_fname, config.n_val_examples)
     random.Random(config.seed).shuffle(train_rows)
     prompt = resolve_input_path(config.prompt_fname).read_text()
+    prompt_name = Path(config.prompt_fname).stem
+    reward_fn = question_only_reward_fn if prompt_name == "question_only" else r1_zero_reward_fn
     val_prompts = [prompt.format(question=row.question) for row in val_rows]
     prompts_per_batch = config.rollout_batch_size // config.group_size
     sampling_params = {
@@ -135,14 +137,14 @@ def train(config: Config, wandb_project: str, wandb_entity: str | None = None,
         "max_tokens": config.sampling_max_tokens,
         "seed": config.seed,
         "n": 1,
-        "stop": "</answer>",
+        "stop": None if prompt_name == "question_only" else "</answer>",
         "include_stop_str_in_output": True,
     }
     server = VLLMServer(model_id=config.model_id, gpu=1, seed=config.seed)
     with wandb.init(
         project=wandb_project,
         entity=wandb_entity,
-        name=run_name or f"grpo-standard-on-policy-seed-{config.seed}",
+        name=run_name or f"grpo-standard-on-policy-{prompt_name}-lr-{config.learning_rate:g}-seed-{config.seed}",
         group="grpo_experiments_standard_on_policy",
         config={**asdict(config), "train_batch_size": config.rollout_batch_size,
                 "policy_device": "cuda:0", "inference_gpu": 1,
@@ -157,13 +159,13 @@ def train(config: Config, wandb_project: str, wandb_entity: str | None = None,
         def completion_table(prompts, completions, ground_truths):
             table = wandb.Table(columns=["prompt", "response", "ground_truth", "reward", "format_reward"])
             for p, completion, truth in list(zip(prompts, completions, ground_truths, strict=True))[:config.n_logged_completions]:
-                reward = r1_zero_reward_fn(completion.text, truth)
+                reward = reward_fn(completion.text, truth)
                 table.add_data(p, completion.text, truth, reward["reward"], reward["format_reward"])
             return table
 
-        def evaluate(step: int) -> None:
+        def evaluate(step: int, with_completions=True) -> None:
             completions = server.generate_completions(val_prompts, sampling_params)
-            rewards = [r1_zero_reward_fn(completion.text, row.ground_truth)
+            rewards = [reward_fn(completion.text, row.ground_truth)
                        for row, completion in zip(val_rows, completions, strict=True)]
             metrics = {
                 "rollout_step": step,
@@ -171,7 +173,7 @@ def train(config: Config, wandb_project: str, wandb_entity: str | None = None,
                 "val/format_reward": sum(r["format_reward"] for r in rewards) / len(rewards),
                 "val/response_length": sum(len(c.token_ids) for c in completions) / len(completions),
             }
-            if config.n_logged_completions:
+            if config.n_logged_completions and with_completions:
                 metrics["val/completions"] = completion_table(
                     val_prompts, completions, [row.ground_truth for row in val_rows])
             run.log(metrics)
@@ -191,7 +193,7 @@ def train(config: Config, wandb_project: str, wandb_entity: str | None = None,
                 started = time.monotonic()
                 server.sync_policy_weights(policy)
                 if i % config.validation_period == 0:
-                    evaluate(i)
+                    evaluate(i, with_completions=False)
                 # Wrap across the dataset boundary while retaining a full response batch.
                 start = i * prompts_per_batch
                 batch_rows = [train_rows[(start + j) % len(train_rows)] for j in range(prompts_per_batch)]
@@ -204,7 +206,7 @@ def train(config: Config, wandb_project: str, wandb_entity: str | None = None,
                     raise RuntimeError(f"Expected {config.rollout_batch_size} completions, got {len(rollouts)}")
                 loss, metadata = rl_utils.grpo_train_step(
                     policy, tokenizer, optimizer, config.gradient_accumulation_steps,
-                    config.max_grad_norm, r1_zero_reward_fn, repeated_prompts, rollouts,
+                    config.max_grad_norm, reward_fn, repeated_prompts, rollouts,
                     repeated_truths, config.group_size)
                 metrics = {
                     "rollout_step": i + 1,
@@ -216,7 +218,7 @@ def train(config: Config, wandb_project: str, wandb_entity: str | None = None,
                     "train/response_length": sum(len(c.token_ids) for c in completions) / len(completions),
                     "train/step_seconds": time.monotonic() - started,
                 }
-                if config.n_logged_completions and (i == 0 or (i + 1) % config.rollout_log_period == 0):
+                if config.n_logged_completions and i == 0:
                     metrics["train/completions"] = completion_table(repeated_prompts, completions, repeated_truths)
                 run.log(metrics)
                 print(f"step {i + 1}: train reward {metrics['train/reward']:.3f}, "
@@ -233,7 +235,10 @@ def train(config: Config, wandb_project: str, wandb_entity: str | None = None,
     gpu="B200:2",
     timeout=60 * 60,
     max_containers=4,
-    secrets=[modal.Secret.from_name("wandb-secret-2", required_keys=["WANDB_API_KEY"])],
+    secrets=[
+        modal.Secret.from_name("wandb-secret-2", required_keys=["WANDB_API_KEY"]),
+        modal.Secret.from_name("huggingface-secret", required_keys=["HF_TOKEN"]),
+    ],
 )
 def run_on_modal(options: dict) -> str | None:
     return run_from_options(options)

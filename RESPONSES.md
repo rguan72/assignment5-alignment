@@ -5,8 +5,36 @@ r1_zero_shot: as an improvement over question-only, the model stops generating m
 
 r1_three_shot: as an improvement over zero shot, the model starts to much more consistently follow the "...</think> <answer> ... </answer>" pattern. This ensures that the short final answer instead of answer + reasoning is contained with <answer> tags.
 
-4.1 - baseline calcs
+4.1 - baseline calcs (in notebook)
 a)
+
+4.3c) I ran this experiment with seeds 0, 1, 2, 3.
+
+Before training rollouts:
+  Let’s break it down step by step. First, we know that a full can of frosting can frost a layer cake, single cake, or a dozen cupcakes. 
+  
+  For the layer cakes, since three layer cakes are needed and each is a layer cake, and each layer cake requires a can of frosting, the total cans needed for layer cakes is 3 * 1 = 3 cans. 
+  
+  For the single cakes, since there are 6 single cakes and each can of frosting can frost one cake, the total cans needed for single cakes is 6 * 1 = 6 cans. 
+  
+  For the dozen cupcakes, since a half can of frosting is used to frost a single cake or a dozen cupcakes, and each can of frosting can frost one cake or a dozen cupcakes, the total cans needed for a dozen cupcakes is 0.5 * 1 = 0.5 cans. 
+  
+  Now, adding all the cans needed for each type of dessert, we get 3 + 6 + 0.5 = 9.5 cans. However, the question asks for the total cans needed and not the total frosting amount. So, the total cans needed is 9.5, but since we can’t have half a can, we round up to 10 cans. Therefore, Paul will need 10 cans of frosting to have everything ready and frosted for customer pick up. </think>
+
+  Each bird eats 7 berries a day. Samuel has 5 birds. 5 birds * 7 berries/ bird/day = 35 berries/day. Samuel's birds eat 35 berries in 1 day. </think> Each bird will eat 35 berries in 4 days. 35 berries/day * 4 days = 140 berries. Samuel's birds will eat 140 berries in 4 days. </answer>
+
+After training rollouts:
+ First, we find out how many students enrolled in contemporary dance: 20 * 0.2 = 4 students. Then, we find out how many students are left: 20 - 4 = 16 students. Next, we calculate how many of these remaining students enrolled in jazz dance: 16 * 0.25 = 4 students. So, the rest, which is the number of students who enrolled in hip-hop dance, is 16 - 4 = 12 students. Therefore, 12 students pursued hip-hop dance. The percentage of students pursuing hip-hop dance is (12 / 20) * 100 = 60%. </think> <answer> 60 </answer>
+
+  James runs 3 sprints, and each sprint is 60 meters. So, in one session (3 sprints), he runs 3 * 60 = 180 meters. Since he does this 3 times a week, he runs 180 * 3 = 540 meters in a week. </think> <answer> 540 </answer>
+
+4.3 - Problem (grpo_learning_rate): Tune the learning rate (4 B200 hrs) (3 points)
+uv run modal run experiments/grpo_experiments_standard_on_policy.py --learning-rate 1e-6
+uv run modal run experiments/grpo_experiments_standard_on_policy.py --learning-rate 1e-4
+
+4.3 - Problem (grpo_prompt_ablation): Prompt ablation (4 B200 hrs) (3 points)
+uv run modal run experiments/grpo_experiments_standard_on_policy.py --prompt-fname "cs336_alignment/prompts/r1_zero_three_shot_gsm8k.prompt"
+uv run modal run experiments/grpo_experiments_standard_on_policy.py --prompt-fname "cs336_alignment/prompts/question_only.prompt"
 
 5.1
 a) Sequence length normalization vs Constant normalization
