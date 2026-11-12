@@ -109,10 +109,9 @@ def compute_policy_gradient_loss(
         assert response_mask is not None, "need to pass response mask for gspo"
         assert old_log_probs is not None, "need to pass old_log_probs for importance reweighting"
         t = policy_log_probs.shape[-1]
-        masked_policy_log_probs = policy_log_probs
-        masked_policy_log_probs[~response_mask] = 0.0
-        masked_old_log_probs = old_log_probs
-        masked_old_log_probs[~response_mask] = 0.0
+        mask = response_mask.bool()
+        masked_policy_log_probs = policy_log_probs.masked_fill(~mask, 0.0)
+        masked_old_log_probs = old_log_probs.masked_fill(~mask, 0.0)
         sequence_lengths = torch.sum(response_mask, dim=-1, keepdim=True).clamp(min=1) # b x 1; clamp avoids 0/0 on empty responses
         log_importance_weights = (1 / sequence_lengths) * (torch.sum(masked_policy_log_probs, dim=-1, keepdim=True) - torch.sum(masked_old_log_probs, dim=-1, keepdim=True))
         importance_weights = torch.exp(log_importance_weights).repeat(1, t)
@@ -195,7 +194,8 @@ def grpo_train_step(
             entropy_sum += (policy_outputs["token_entropy"] * mini_batch_response_mask).float().sum().item()
             response_token_count += mini_batch_response_mask.sum().item()
         del policy_outputs
-        per_token_policy_gradient_loss, pg_metadata = compute_policy_gradient_loss(normalized_rewards[i:i+true_mini_batch_size], policy_logprobs, importance_reweighting_method, old_log_probs, cliprange, response_mask=mini_batch_response_mask)
+        mini_batch_old_log_probs = old_log_probs[i:i+true_mini_batch_size] if old_log_probs is not None else None
+        per_token_policy_gradient_loss, pg_metadata = compute_policy_gradient_loss(normalized_rewards[i:i+true_mini_batch_size], policy_logprobs, importance_reweighting_method, mini_batch_old_log_probs, cliprange, response_mask=mini_batch_response_mask)
         per_token_policy_gradient_loss_scaled = per_token_policy_gradient_loss * true_mini_batch_size / batch_size
         aggregate_microbatch_pg_loss = aggregate_loss_across_microbatch(per_token_policy_gradient_loss_scaled, mini_batch_response_mask, loss_normalization, normalization_constant)
         aggregate_pg_loss += aggregate_microbatch_pg_loss.detach()
