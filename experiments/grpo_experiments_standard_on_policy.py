@@ -46,7 +46,7 @@ class Config:
     seed: int = 0
     n_train_examples: int = 6400
     n_val_examples: int = 1024
-    num_rollout_steps: int = 50
+    num_rollout_steps: int = 150
     learning_rate: float = 1e-5
     rollout_batch_size: int = 256
     group_size: int = 8

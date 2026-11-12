@@ -32,9 +32,16 @@ After training rollouts:
 uv run modal run experiments/grpo_experiments_standard_on_policy.py --learning-rate 1e-6
 uv run modal run experiments/grpo_experiments_standard_on_policy.py --learning-rate 1e-4
 
+[lr-val-reward.png](lr-val-reward.png)
+As you can see from lr-val-reward, when tuning the learning rate, all learning rates tested (1e-6, 3e-6, 3e-5, 1e-4) performed significantly worse than 1e-5. Most failed to learn at all except for 3e-5/
+
 4.3 - Problem (grpo_prompt_ablation): Prompt ablation (4 B200 hrs) (3 points)
 uv run modal run experiments/grpo_experiments_standard_on_policy.py --prompt-fname "cs336_alignment/prompts/r1_zero_three_shot_gsm8k.prompt"
 uv run modal run experiments/grpo_experiments_standard_on_policy.py --prompt-fname "cs336_alignment/prompts/question_only.prompt"
+
+[prompt-ablation.png](prompt-ablation.png)
+
+Three shot prompt learned faster than the r1 zero shot prompt, and the question-only prompt failed to learn at all.
 
 5.1
 a) Sequence length normalization vs Constant normalization

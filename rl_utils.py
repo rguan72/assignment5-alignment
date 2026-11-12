@@ -113,7 +113,7 @@ def compute_policy_gradient_loss(
         masked_policy_log_probs[~response_mask] = 0.0
         masked_old_log_probs = old_log_probs
         masked_old_log_probs[~response_mask] = 0.0
-        sequence_lengths = torch.sum(response_mask, dim=-1, keepdim=True) # b x 1
+        sequence_lengths = torch.sum(response_mask, dim=-1, keepdim=True).clamp(min=1) # b x 1; clamp avoids 0/0 on empty responses
         log_importance_weights = (1 / sequence_lengths) * (torch.sum(masked_policy_log_probs, dim=-1, keepdim=True) - torch.sum(masked_old_log_probs, dim=-1, keepdim=True))
         importance_weights = torch.exp(log_importance_weights).repeat(1, t)
     if importance_reweighting_method != "none":
@@ -134,7 +134,9 @@ def aggregate_loss_across_microbatch(
 ) -> torch.Tensor:
     sum_over_seq = torch.sum(per_token_policy_gradient_loss * mask, dim=-1)
     if loss_normalization == "sequence":
-        count_over_seq = torch.sum(mask, dim=-1)
+        # Empty responses (e.g. the model emits EOS immediately) have count 0; clamp so
+        # they contribute zero loss instead of 0/0 = NaN, which poisons the whole update.
+        count_over_seq = torch.sum(mask, dim=-1).clamp(min=1)
         return torch.mean(sum_over_seq / count_over_seq)
     assert normalization_constant is not None, "normalization constant must be provided when loss normalization = constant"
     # normalization constant already BGL so no need to do means over batch dimension
