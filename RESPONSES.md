@@ -32,8 +32,8 @@ After training rollouts:
 uv run modal run experiments/grpo_experiments_standard_on_policy.py --learning-rate 1e-6
 uv run modal run experiments/grpo_experiments_standard_on_policy.py --learning-rate 1e-4
 
-[lr-val-reward.png](lr-val-reward.png)
-As you can see from lr-val-reward, when tuning the learning rate, all learning rates tested (1e-6, 3e-6, 3e-5, 1e-4) performed significantly worse than 1e-5. Most failed to learn at all except for 3e-5/
+[lr-ablation.png](lr-ablation.png)
+Both learning rates performed significantly worse than 1e-5. The higher learning rate maxed out format reward then barely learned after that. The lower learning rate increased at a very slow rate.
 
 4.3 - Problem (grpo_prompt_ablation): Prompt ablation (4 B200 hrs) (3 points)
 uv run modal run experiments/grpo_experiments_standard_on_policy.py --prompt-fname "cs336_alignment/prompts/r1_zero_three_shot_gsm8k.prompt"
@@ -41,10 +41,13 @@ uv run modal run experiments/grpo_experiments_standard_on_policy.py --prompt-fna
 
 [prompt-ablation.png](prompt-ablation.png)
 
-Three shot prompt learned faster than the r1 zero shot prompt, and the question-only prompt failed to learn at all.
+Three shot prompt starts off with a higher val and format reward than r1 zero shot prompt and generally has a higher val reward per step. question only and r1 zero shot both start with zero val reward, but quesiton only starts off with zero format reward and takes many steps to catch up to the approximate val reward of r1 zero. Question only requires many iterations to even learn the question-only nature of the task.  
 
 5.1
 a) Sequence length normalization vs Constant normalization
 When normalizing by sequence length instead of a constant, longer rollouts yield a lower loss and thus policy gradient compared to shorter rollouts. So longer rollouts will change the gradients less than shorter rollouts. For rollouts achieving positive advantage, the model is positively reinforced more for shorter rollouts than longer rollouts (so, for example if in a group a model answers a question right with a long rollout and a short rollout, it is reinforced more for the short rollout). Over time, this may optimize the model to provide correct answers with shorter responses. For rollouts achieving negative advantage, the model is less negatively reinforced for longer rollouts. This may optimize the model to provide incorrect answers with longer responses. Constant normalization doesn't have this incentive. Sequence length normalization might be helpful in settings where models often get positive reward (easy tasks) for incentivizing them to provide shorter responses, but constant normalization is better for not incentivizing long responses for tasks the models cannot solve. 
+
+5.2 - think about RFT)
+
 
 
