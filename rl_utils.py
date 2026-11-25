@@ -131,14 +131,13 @@ def aggregate_loss_across_microbatch(
     loss_normalization: Literal["sequence", "constant"] = "sequence",
     normalization_constant: int | None = None,
 ) -> torch.Tensor:
-    sum_over_seq = torch.sum(per_token_policy_gradient_loss * mask, dim=-1)
+    sum_over_seq = torch.sum(per_token_policy_gradient_loss * mask, dim=-1) # b
     if loss_normalization == "sequence":
         # Empty responses (e.g. the model emits EOS immediately) have count 0; clamp so
         # they contribute zero loss instead of 0/0 = NaN, which poisons the whole update.
         count_over_seq = torch.sum(mask, dim=-1).clamp(min=1)
         return torch.mean(sum_over_seq / count_over_seq)
     assert normalization_constant is not None, "normalization constant must be provided when loss normalization = constant"
-    # normalization constant already BGL so no need to do means over batch dimension
     return torch.sum(sum_over_seq / normalization_constant)
 
 def grpo_train_step(
@@ -196,7 +195,10 @@ def grpo_train_step(
         del policy_outputs
         mini_batch_old_log_probs = old_log_probs[i:i+true_mini_batch_size] if old_log_probs is not None else None
         per_token_policy_gradient_loss, pg_metadata = compute_policy_gradient_loss(normalized_rewards[i:i+true_mini_batch_size], policy_logprobs, importance_reweighting_method, mini_batch_old_log_probs, cliprange, response_mask=mini_batch_response_mask)
-        per_token_policy_gradient_loss_scaled = per_token_policy_gradient_loss * true_mini_batch_size / batch_size
+        if loss_normalization == "sequence":
+            per_token_policy_gradient_loss_scaled = per_token_policy_gradient_loss * true_mini_batch_size / batch_size
+        else:
+            per_token_policy_gradient_loss_scaled = per_token_policy_gradient_loss
         aggregate_microbatch_pg_loss = aggregate_loss_across_microbatch(per_token_policy_gradient_loss_scaled, mini_batch_response_mask, loss_normalization, normalization_constant)
         aggregate_pg_loss += aggregate_microbatch_pg_loss.detach()
         aggregate_microbatch_pg_loss.backward()

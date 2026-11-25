@@ -48,6 +48,13 @@ a) Sequence length normalization vs Constant normalization
 When normalizing by sequence length instead of a constant, longer rollouts yield a lower loss and thus policy gradient compared to shorter rollouts. So longer rollouts will change the gradients less than shorter rollouts. For rollouts achieving positive advantage, the model is positively reinforced more for shorter rollouts than longer rollouts (so, for example if in a group a model answers a question right with a long rollout and a short rollout, it is reinforced more for the short rollout). Over time, this may optimize the model to provide correct answers with shorter responses. For rollouts achieving negative advantage, the model is less negatively reinforced for longer rollouts. This may optimize the model to provide incorrect answers with longer responses. Constant normalization doesn't have this incentive. Sequence length normalization might be helpful in settings where models often get positive reward (easy tasks) for incentivizing them to provide shorter responses, but constant normalization is better for not incentivizing long responses for tasks the models cannot solve. 
 
 5.2 - think about RFT)
+-> in notebook
+
+5.3 - derive difficulty reweightings
+-> in notebook
+
+5.3 - think about advantage normalization
+-> in notebook
 
 
 
