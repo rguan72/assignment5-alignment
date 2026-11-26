@@ -56,5 +56,24 @@ When normalizing by sequence length instead of a constant, longer rollouts yield
 5.3 - think about advantage normalization
 -> in notebook
 
+5.4 - Problem (grpo_experiments_variants_on_policy): Compare the performance of different RL algorithms (8 B200 hrs) (10 points)
+Same hyperparameters as the standard GRPO runs (lr 1e-5, r1_zero prompt, defaults otherwise), 4 seeds each:
+uv run modal run experiments/grpo_experiments_standard_on_policy.py --algorithm GRPO_constant --seed 0
+uv run modal run experiments/grpo_experiments_standard_on_policy.py --algorithm GRPO_constant --seed 1
+uv run modal run experiments/grpo_experiments_standard_on_policy.py --algorithm GRPO_constant --seed 2
+uv run modal run experiments/grpo_experiments_standard_on_policy.py --algorithm GRPO_constant --seed 3
+uv run modal run experiments/grpo_experiments_standard_on_policy.py --algorithm Dr_GRPO --seed 0
+uv run modal run experiments/grpo_experiments_standard_on_policy.py --algorithm Dr_GRPO --seed 1
+uv run modal run experiments/grpo_experiments_standard_on_policy.py --algorithm Dr_GRPO --seed 2
+uv run modal run experiments/grpo_experiments_standard_on_policy.py --algorithm Dr_GRPO --seed 3
+uv run modal run experiments/grpo_experiments_standard_on_policy.py --algorithm RFT --seed 0
+uv run modal run experiments/grpo_experiments_standard_on_policy.py --algorithm RFT --seed 1
+uv run modal run experiments/grpo_experiments_standard_on_policy.py --algorithm RFT --seed 2
+uv run modal run experiments/grpo_experiments_standard_on_policy.py --algorithm RFT --seed 3
+uv run modal run experiments/grpo_experiments_standard_on_policy.py --algorithm MaxRL --seed 0
+uv run modal run experiments/grpo_experiments_standard_on_policy.py --algorithm MaxRL --seed 1
+uv run modal run experiments/grpo_experiments_standard_on_policy.py --algorithm MaxRL --seed 2
+uv run modal run experiments/grpo_experiments_standard_on_policy.py --algorithm MaxRL --seed 3
+
 
 

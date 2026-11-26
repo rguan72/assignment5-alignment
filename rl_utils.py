@@ -175,26 +175,28 @@ def grpo_train_step(
     labels = tokenized["labels"].to(device)
     response_mask = tokenized["response_mask"].to(device)
     raw_rewards, rollout_metadata = compute_rollout_rewards(reward_fn, rollout_responses, repeated_ground_truths)
-    normalized_rewards, normalized_metadata = compute_group_normalized_rewards_grpo(raw_rewards, group_size, baseline, advantage_eps, advantage_normalizer)
-    normalized_rewards = normalized_rewards.to(device)
+    advantages, normalized_metadata = compute_group_normalized_rewards_grpo(raw_rewards, group_size, baseline, advantage_eps, advantage_normalizer)
+    advantages = advantages.to(device)
     batch_size = len(repeated_prompts)
     mini_batch_size = batch_size // gradient_accumulation_steps
-    aggregate_pg_loss = 0.0
+    active = torch.nonzero(advantages).flatten().tolist()
+    aggregate_pg_loss = torch.zeros((), device=device)
     entropy_sum = 0.0
     response_token_count = 0
-    for i in range(0, batch_size, mini_batch_size):
-        true_mini_batch_size = min(mini_batch_size, batch_size - i)
-        mini_batch_input_ids = input_ids[i:i+true_mini_batch_size]
-        mini_batch_labels = labels[i:i+true_mini_batch_size]
-        mini_batch_response_mask = response_mask[i:i+true_mini_batch_size]
+    for i in range(0, len(active), mini_batch_size):
+        mini_batch_idx = active[i:i+mini_batch_size]
+        true_mini_batch_size = len(mini_batch_idx)
+        mini_batch_input_ids = input_ids[mini_batch_idx]
+        mini_batch_labels = labels[mini_batch_idx]
+        mini_batch_response_mask = response_mask[mini_batch_idx]
         policy_outputs = get_response_log_probs(model, mini_batch_input_ids, mini_batch_labels, return_token_entropy=True)
         policy_logprobs = policy_outputs["log_probs"]
         with torch.no_grad():
             entropy_sum += (policy_outputs["token_entropy"] * mini_batch_response_mask).float().sum().item()
             response_token_count += mini_batch_response_mask.sum().item()
         del policy_outputs
-        mini_batch_old_log_probs = old_log_probs[i:i+true_mini_batch_size] if old_log_probs is not None else None
-        per_token_policy_gradient_loss, pg_metadata = compute_policy_gradient_loss(normalized_rewards[i:i+true_mini_batch_size], policy_logprobs, importance_reweighting_method, mini_batch_old_log_probs, cliprange, response_mask=mini_batch_response_mask)
+        mini_batch_old_log_probs = old_log_probs[mini_batch_idx] if old_log_probs is not None else None
+        per_token_policy_gradient_loss, pg_metadata = compute_policy_gradient_loss(advantages[mini_batch_idx], policy_logprobs, importance_reweighting_method, mini_batch_old_log_probs, cliprange, response_mask=mini_batch_response_mask)
         if loss_normalization == "sequence":
             per_token_policy_gradient_loss_scaled = per_token_policy_gradient_loss * true_mini_batch_size / batch_size
         else:

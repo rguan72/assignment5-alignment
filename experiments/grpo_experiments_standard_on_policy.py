@@ -1,7 +1,8 @@
-"""Standard on-policy GRPO, locally or on two Modal B200s.
+"""On-policy GRPO and its variants (--algorithm), locally or on two Modal B200s.
 
 Run from the repository root:
     uv run modal run --detach experiments/grpo_experiments_standard_on_policy.py --num-rollout-steps 50
+    uv run modal run --detach experiments/grpo_experiments_standard_on_policy.py --algorithm Dr_GRPO
 
 The Modal secret ``wandb`` must contain WANDB_API_KEY. See README.md for setup.
 """
@@ -36,9 +37,19 @@ image = (
     .add_local_file(REPO_ROOT / "rl_utils.py", "/root/rl_utils.py")
 )
 
+# grpo_train_step settings per algorithm. "GRPO" is the standard (sequence-normalized) baseline.
+ALGORITHMS = {
+    "GRPO": dict(baseline="mean", advantage_normalizer="std", loss_normalization="sequence"),
+    "GRPO_constant": dict(baseline="mean", advantage_normalizer="std", loss_normalization="constant"),
+    "Dr_GRPO": dict(baseline="mean", advantage_normalizer="none", loss_normalization="constant"),
+    "RFT": dict(baseline="none", advantage_normalizer="none", loss_normalization="constant"),
+    "MaxRL": dict(baseline="mean", advantage_normalizer="mean", loss_normalization="constant"),
+}
+
 
 @dataclass
 class Config:
+    algorithm: str = "GRPO"
     model_id: str = "allenai/OLMo-2-0425-1B"
     training_data_fname: str = "data/gsm8k/train.jsonl"
     validation_data_fname: str = "data/gsm8k/test.jsonl"
@@ -59,6 +70,8 @@ class Config:
     n_logged_completions: int = 16
 
     def validate(self) -> None:
+        if self.algorithm not in ALGORITHMS:
+            raise ValueError(f"algorithm must be one of {list(ALGORITHMS)}")
         for name in (
             "n_train_examples", "n_val_examples", "num_rollout_steps",
             "rollout_batch_size", "gradient_accumulation_steps", "sampling_max_tokens",
@@ -144,8 +157,8 @@ def train(config: Config, wandb_project: str, wandb_entity: str | None = None,
     with wandb.init(
         project=wandb_project,
         entity=wandb_entity,
-        name=run_name or f"grpo-standard-on-policy-{prompt_name}-lr-{config.learning_rate:g}-seed-{config.seed}",
-        group="grpo_experiments_standard_on_policy",
+        name=run_name or f"{config.algorithm}-on-policy-{prompt_name}-lr-{config.learning_rate:g}-seed-{config.seed}",
+        group=f"grpo_experiments_{'standard' if config.algorithm == 'GRPO' else 'variants'}_on_policy",
         config={**asdict(config), "train_batch_size": config.rollout_batch_size,
                 "policy_device": "cuda:0", "inference_gpu": 1,
                 "dtype": "bfloat16", "attn_implementation": "flash_attention_2",
@@ -207,7 +220,9 @@ def train(config: Config, wandb_project: str, wandb_entity: str | None = None,
                 loss, metadata = rl_utils.grpo_train_step(
                     policy, tokenizer, optimizer, config.gradient_accumulation_steps,
                     config.max_grad_norm, reward_fn, repeated_prompts, rollouts,
-                    repeated_truths, config.group_size)
+                    repeated_truths, config.group_size, **ALGORITHMS[config.algorithm],
+                    # Z = B * G * L for constant loss normalization (ignored for "sequence").
+                    normalization_constant=config.rollout_batch_size * config.sampling_max_tokens)
                 metrics = {
                     "rollout_step": i + 1,
                     "train/loss": loss.item(),
